@@ -6,13 +6,14 @@ import androidx.compose.material.TextField
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.awt.ComposePanel
 import androidx.compose.ui.awt.SwingPanel
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
+import org.example.MyAppLogic
+import org.example.MyPluginInterface
 import java.io.File
 import java.lang.reflect.Method
 import java.net.URL
@@ -23,38 +24,31 @@ class PluginException(
     val throwable: Throwable,
 )
 
-sealed interface MyPlugin {
+sealed interface PluginWithName {
     val name: String
 
-    class InternalPlugin(
-        override val name: String,
-        val content: @Composable () -> Unit
-    ) : MyPlugin
+    interface InternalPlugin : MyPluginInterface, PluginWithName
 
     class ExternalJarPlugin(
         override val name: String,
         val pathToJar: String,
-        className: String,
-        functionName: String
-    ) : MyPlugin
+        val className: String
+    ) : PluginWithName
 }
 
-val plugins: List<MyPlugin> = listOf(
-    MyPlugin.InternalPlugin("Internal1") {
-        SomeInternalPlugin()
-    },
-    MyPlugin.ExternalJarPlugin(
+val plugins: List<PluginWithName> = listOf(
+    SOME_INTERNAL_PLUGIN,
+    PluginWithName.ExternalJarPlugin(
         "External1",
-        "/Users/dim/Desktop/github/dima-avdeev-jb/compose-with-classloader/jar-library/build/libs/jar-library.jar",
-        className = "com.example.lib.LibImplementation",
-        functionName = "hello",
+        "/Users/dim/Desktop/github/dima-avdeev-jb/compose-with-classloader/plugin-jar/build/libs/plugin-jar.jar",
+        className = "org.example.plugin.MyJarPlugin",
     )
 )
 
 fun main() {
     application {
         val pluginExceptionState: MutableState<PluginException?> = remember { mutableStateOf(null) }
-        val currentPluginState: MutableState<MyPlugin?> = remember { mutableStateOf(null) }
+        val currentPluginState: MutableState<PluginWithName?> = remember { mutableStateOf(null) }
 
         Window(onCloseRequest = ::exitApplication) {
             Box(Modifier.fillMaxSize()) {
@@ -82,6 +76,11 @@ fun main() {
                                 ) {
                                     Text("Plugin")
                                     Box(Modifier.border(width = 2.dp, color = Color.Black).padding(20.dp)) {
+                                        val pluginInterface: MyPluginInterface =
+                                            when (currentPlugin) {
+                                                is PluginWithName.InternalPlugin -> currentPlugin
+                                                is PluginWithName.ExternalJarPlugin -> Loader.loadJarPlugin(currentPlugin)
+                                            }
                                         SwingPanel(
                                             factory = {
                                                 Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
@@ -89,22 +88,17 @@ fun main() {
                                                     throwable.printStackTrace()
                                                     pluginExceptionState.value = PluginException(thread, throwable)
                                                 }
-                                                when (currentPlugin) {
-                                                    is MyPlugin.InternalPlugin -> {
-                                                        ComposePanel().also {
-                                                            it.setContent {
-                                                                SomeInternalPlugin()
-                                                            }
-                                                        }
-                                                    }
-
-                                                    is MyPlugin.ExternalJarPlugin -> {
-                                                        TODO()
-                                                    }
-                                                }
+                                                pluginInterface.createSwingComponent()
                                             },
                                             modifier = Modifier.size(400.dp, 400.dp),
-                                            update = { println("update") }
+                                            update = {
+                                                pluginInterface.updateSwingComponent(
+                                                    appLogic = object : MyAppLogic {
+                                                        override fun someAppState(): String = "some App state"
+                                                    },
+                                                    component = it
+                                                )
+                                            }
                                         )
                                     }
                                 }
@@ -136,42 +130,15 @@ fun main() {
     }
 }
 
-@Composable
-fun SomeInternalPlugin() {
-    Column {
-        var couter by remember { mutableStateOf(0) }
-        if (couter > 10) {
-            throw Exception("Simulate library Counter exception")
-        }
-        Button({ couter++ }) {
-            Text("Click $couter")
-        }
-        Button({
-            throw Error("Simulate library exception")
-        }) {
-            Text("Library, throw exception")
-        }
-    }
-}
 
 object Loader {
-    fun loadLibJar() {
-        val jarPath =
-            File("/Users/dim/Desktop/github/dima-avdeev-jb/compose-with-classloader/jar-library/build/libs/jar-library.jar")
+    fun loadJarPlugin(plugin: PluginWithName.ExternalJarPlugin): MyPluginInterface {
+        val jarPath = File(plugin.pathToJar)
         val urlClassLoader: URLClassLoader = URLClassLoader(
             arrayOf<URL>(jarPath.toURI().toURL()),
             this.javaClass.classLoader
         )
-        Thread.setDefaultUncaughtExceptionHandler(object : Thread.UncaughtExceptionHandler {
-            override fun uncaughtException(t: Thread?, e: Throwable?) {
-                e?.printStackTrace()
-                println("uncaughtException, e?.message: ${e?.message}")
-            }
-        })
-        val classToLoad: Class<*> = Class.forName("com.example.lib.LibImplementation", true, urlClassLoader)
-        val method: Method = classToLoad.getDeclaredMethod("hello")
-        val instance = classToLoad.newInstance()
-        val result: Any = method.invoke(instance)
-        println(result)
+        val classToLoad: Class<*> = Class.forName(plugin.className, true, urlClassLoader)
+        return classToLoad.getDeclaredConstructor().newInstance() as MyPluginInterface
     }
 }

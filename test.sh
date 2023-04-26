@@ -1,3 +1,3 @@
 #!/bin/bash
-./gradlew jar-library:jar
+./gradlew plugin-jar:jar
 ./gradlew desktopApp:run
