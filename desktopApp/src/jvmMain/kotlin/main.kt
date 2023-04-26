@@ -3,7 +3,9 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.material.Button
 import androidx.compose.material.Text
 import androidx.compose.material.TextField
-import androidx.compose.runtime.*
+import androidx.compose.runtime.MutableState
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.awt.SwingPanel
@@ -15,7 +17,6 @@ import androidx.compose.ui.window.application
 import org.example.MyAppLogic
 import org.example.MyPluginInterface
 import java.io.File
-import java.lang.reflect.Method
 import java.net.URL
 import java.net.URLClassLoader
 
@@ -40,7 +41,7 @@ val plugins: List<PluginWithName> = listOf(
     SOME_INTERNAL_PLUGIN,
     PluginWithName.ExternalJarPlugin(
         "External1",
-        "/Users/dim/Desktop/github/dima-avdeev-jb/compose-with-classloader/plugin-jar/build/libs/plugin-jar.jar",
+        "../plugin-jar/build/libs/plugin-jar.jar",
         className = "org.example.plugin.MyJarPlugin",
     )
 )
@@ -79,7 +80,9 @@ fun main() {
                                         val pluginInterface: MyPluginInterface =
                                             when (currentPlugin) {
                                                 is PluginWithName.InternalPlugin -> currentPlugin
-                                                is PluginWithName.ExternalJarPlugin -> Loader.loadJarPlugin(currentPlugin)
+                                                is PluginWithName.ExternalJarPlugin -> Loader.loadJarPlugin(
+                                                    currentPlugin
+                                                )
                                             }
                                         SwingPanel(
                                             factory = {
@@ -130,10 +133,10 @@ fun main() {
     }
 }
 
-
 object Loader {
     fun loadJarPlugin(plugin: PluginWithName.ExternalJarPlugin): MyPluginInterface {
-        val jarPath = File(plugin.pathToJar)
+        println("File(\".\").absoluteFile: ${File(".").absoluteFile}")
+        val jarPath = File(".").resolve(plugin.pathToJar)
         val urlClassLoader: URLClassLoader = URLClassLoader(
             arrayOf<URL>(jarPath.toURI().toURL()),
             this.javaClass.classLoader
